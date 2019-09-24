@@ -1,6 +1,8 @@
 # zenkei_ai
 ZENKEI AI python package for Deep Learning projects mainly for (but not limited to) "ZENKEI AI FORUM" community
 
+![ZENKEI AI FORUM](https://github.com/zenkeilab/zenkei_ai/blob/images/zenkei-ai-forum_green.jpg)
+
 # License
 This software is released under the MIT License, see LICENSE.
 
