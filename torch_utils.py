@@ -74,6 +74,29 @@ class OneCycleGenerator():
 
 
 
+# label smoothing loss function
+# from fast.ai Lesson 12 https://youtu.be/vnOpEwmtFJ8?t=1292
+def _lin_comb(v1, v2, beta): return beta*v1 + (1-beta)*v2
+
+def _reduce_loss(loss, reduction='mean'):
+    return loss.mean() if reduction=='mean' else loss.sum() if reduction=='sum' else loss
+
+class LabelSmoothingCrossEntropy(nn.Module):
+    def __init__(self, epsilon=0.1, reduction='mean'):
+        super().__init__()
+        self.epsilon = epsilon
+        self.reduction = reduction
+
+    def forward(self, output, target):
+        c = output.size()[-1]
+        log_preds = F.log_softmax(output, dim=-1)
+        loss = _reduce_loss(-log_preds.sum(dim=-1), self.reduction)
+        nll = F.nll_loss(log_preds, target, reduction=self.reduction)
+        return _lin_comb(loss/c, nll, self.epsilon)
+
+
+
+
 def accuracy(outputs, labels):
     _, preds = torch.max(outputs, -1)
     acc = torch.mean((preds == labels.data).float())
