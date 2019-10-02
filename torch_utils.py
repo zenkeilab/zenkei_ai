@@ -1,5 +1,6 @@
 import copy
 import math
+import gc
 from tqdm import tqdm
 from tqdm import tqdm_notebook
 from itertools import chain
@@ -281,21 +282,25 @@ def plot_history(history):
         plt.plot(history['loss_all'], '.', zorder=1)
         plt.scatter(x, history['loss'], s=400, c='orange', zorder=2)
         if len(x) > 1:
-            plt.plot(x, history['loss'], '-')
+            plt.plot(x, history['loss'], '-',
+                     label='training')
         if 'val_loss' in history:
             plt.scatter(x, history['val_loss'], s=400, c='red', zorder=2)
             if len(x) > 1:
-                plt.plot(x, history['val_loss'], '-', c='red')
-
+                plt.plot(x, history['val_loss'], '-', c='red',
+                         label='validation')
     else:
         plt.xlabel('epoch')
         plt.plot(history['loss'], 'o', c='orange')
         if len(history['loss']) > 1:
-            plt.plot(history['loss'], '-', c='orange')
+            plt.plot(history['loss'], '-', c='orange',
+                     label='training')
         if 'val_loss' in history:
             plt.plot(history['val_loss'], 'o', c='red')
             if len(history['val_loss']) > 1:
-                plt.plot(history['val_loss'], '-', c='red')
+                plt.plot(history['val_loss'], '-', c='red',
+                         label='validation')
+    plt.legend()
 
     if 'acc' in history:
         plt.subplot(n_rows, n_cols, 2)
@@ -307,20 +312,45 @@ def plot_history(history):
             plt.plot(history['acc_all'], '.', zorder=1)
             plt.scatter(x, history['acc'], s=400, c='orange', zorder=2)
             if len(x) > 1:
-                plt.plot(x, history['acc'], '-')
+                plt.plot(x, history['acc'], '-',
+                         label='training')
             if 'val_acc' in history:
                 plt.scatter(x, history['val_acc'], s=400, c='red', zorder=2)
                 if len(x) > 1:
-                    plt.plot(x, history['val_acc'], '-', c='red')
+                    plt.plot(x, history['val_acc'], '-', c='red',
+                             label='validation')
         else:
             plt.xlabel('epoch')
             plt.plot(history['acc'], 'o', c='orange')
             if len(history['acc']) > 1:
-                plt.plot(history['acc'], '-', c='orange')
+                plt.plot(history['acc'], '-', c='orange',
+                         label='training')
             if 'val_acc' in history:
                 plt.plot(history['val_acc'], 'o', c='red')
                 if len(history['val_acc']) > 1:
-                    plt.plot(history['val_acc'], '-', c='red')
+                    plt.plot(history['val_acc'], '-', c='red',
+                             label='validation')
+        plt.legend()
+
+    elif 'val_acc' in history:
+        plt.subplot(n_rows, n_cols, 2)
+        plt.title('acc')
+        plt.ylabel('acc')
+        plt.grid(which='major',color='k',linestyle='--')
+        if 'loss_all' in history:
+            # that is, x is defined
+            plt.xlabel('step')
+            plt.scatter(x, history['val_acc'], s=400, c='red', zorder=2)
+            if len(x) > 1:
+                plt.plot(x, history['val_acc'], '-', c='red',
+                         label='validation')
+        else:
+            plt.xlabel('epoch')
+            plt.plot(history['val_acc'], 'o', c='red')
+            if len(history['val_acc']) > 1:
+                plt.plot(history['val_acc'], '-', c='red',
+                         label='validation')
+        plt.legend()
 
     plt.show()
 
@@ -1672,7 +1702,7 @@ class model():
 
 
 class GAN():
-    """GAN class
+    """GAN model class
 
     Parameters
     ----------
@@ -1990,3 +2020,601 @@ class GAN():
         plt.imshow(np.transpose(imgs, (1, 2, 0)))
 
         plt.show()
+
+
+
+
+class RCNN(model):
+    """RCNN model class
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The model to train, predict, etc.
+    device: torch.device
+        Set torch.device('cuda') or torch.device('cpu')
+    opt_func: torch.optim
+        The optimizer class for training. Note that this is NOT an instance.
+    loss_dict: dictionary of the label (key) and the loss or metric function.
+        For example, {'loss': F.cross_entropy, 'acc': accuracy}.
+        The entry 'loss' is mandatory.
+    layer_groups : None or list/tuple
+        Layer groups for which different LRs and/or momentums can be set.
+    is_rnn : bool
+        Set `True` for the RNN model which outputs extra elements.
+    reg_seq2seq : bool
+        This is only for RNN models.
+        If `True`, use regularization `reg_seq2seq`.
+        Default is `False`.
+    """
+
+    def find_lr(
+        self,
+        trn_iter,
+        ave_steps=1,
+        lr_steps=10,
+        lr_factor=1.1,
+        max_lr=None,
+        lrs=1.0e-6,
+        wds=1e-7,
+        wd_type=0,
+        clip=1,
+        grad_acc=1,
+        flag_gc=False,
+        verbose=0):
+        """Find learning rate parameter.
+
+        Parameters
+        ----------
+        trn_iter:
+            Data loader (iterator) providing input data as well as the labels.
+        ave_steps: Int
+            Number of runs to take ensemble average of the results.
+            If 0 is given, losses are evalulated in a continuous mode,
+            where the weights are not reset for each `lr`.
+            Default is 1, that is, no ensemble averaging.
+        lr_steps: Int (optional)
+            Steps to optimize for each lr value. The default value is 10.
+        lr_factor: Float (optional)
+            The multiplicative factor for the learning rate
+            for the next cycle. The default value is 1.1.
+        max_lr: Float (optional)
+            The maximum lr value to search.
+            If None is given, searching is terminated by the loss limit
+            which is 4 times bigger than the initial loss value.
+            Default is None.
+        lrs : Float or list/tuple/np.array of Floats (optional)
+            The initial value of the learning rates for LR finder.
+            If list/tuple/np.array is given, the length must be equal to
+            the number of layer groups of the model and each value
+            corresponds to the layer group.
+            Default is 1.0e-6.
+        wds : Float or list/tuple/np.array of Floats (optional)
+            Weight decay factor.
+            If list/tuple/np.array is given, the length must be equal to
+            the number of layer groups of the model and each value
+            corresponds to the layer group.
+            The default value is 1e-7.
+        wd_type : Int (optional)
+            If `0` is given, AdamW type weight decay is used.
+            Otherwise, conventional L2 regularization type is used.
+        clip: None or Float (optional)
+            Gradient clipping value.
+            If None is given, gradient clipping is not applied.
+            Default is None.
+        grad_acc : Int
+            Gradient accumulation factor.
+            For example, if `2` is given, updating parameters are applied
+            once in 2 steps, so that effective batch size becomes twice.
+            Default is 1.
+        flag_gc : Bool (optional)
+            Set `True` if you want gabage collecting for every step.
+            Default is `False`.
+        verbose: Int
+            Set non zero value for verbose mode.
+        """
+
+        # for house keeping
+        init_state_dict = copy.deepcopy(self.model.state_dict())
+
+        continuous_mode = False
+        if ave_steps == 0:
+            continuous_mode = True
+            ave_steps = 1
+
+        self.lrf_ave_steps = ave_steps
+        self.lrf_ave_samples = []
+
+        average_count = 0
+        _lrs = []
+        _losses = []
+        lr_ratio = 1 / lr_factor # to begin with lr_ratio = 1
+        init_loss = None
+
+        gen = iter(trn_iter)
+        loss_func = self.loss_dict['loss']
+
+        lrs0, wds0 = self._normalize_hyperparameters(lrs, wds)
+        if wd_type == 0:
+            # AdamW
+            optimizer = self._init_optimizer_(lrs0)
+        else:
+            # L2 regularization
+            optimizer = self._init_optimizer(lrs0, wds0)
+
+
+        if max_lr is None: lr_range = None
+        else: lr_range = max_lr / lrs0[-1]
+
+
+        # training loop
+        self.model.train(mode=True)
+
+        while 1:
+            lr_ratio *= lr_factor
+
+            for lr0, pg in zip(lrs0, optimizer.param_groups):
+                pg['lr'] = lr0 * lr_ratio
+
+            if hasattr(self.model, 'reset'):
+                self.model.reset()
+
+            # training loop with the learning rate
+            if not continuous_mode:
+                self.model.load_state_dict(init_state_dict)
+            for loop in range(lr_steps):
+
+                # zero the parameter gradients
+                with torch.set_grad_enabled(True):
+                    optimizer.zero_grad()
+                loss_acc = 0
+
+                # gradient accumulation loop
+                for ga_i in range(grad_acc):
+                    try:
+                        inputs, labels = next(gen)
+                    except StopIteration:
+                        gen = iter(trn_iter)
+                        inputs, labels = next(gen)
+
+                    #inputs = inputs.to(self.device)
+                    #labels = labels.to(self.device)
+                    inputs = [i.to(self.device) for i in inputs]
+                    labels = [{k: v.to(self.device) for k, v in l.items()} for l in labels]
+
+                    # forward
+                    with torch.set_grad_enabled(True):
+                        #outputs = self.model(inputs)
+                        # for RCNN models
+                        outputs = self.model(inputs, labels)
+
+                        loss = loss_func(outputs, labels)
+                        raw_loss_ = loss.item()
+
+                        loss = loss / grad_acc
+
+                        # backward -- acculumating the grads
+                        loss.backward()
+
+                        # for OOM by Giang
+                        if flag_gc:
+                            del inputs, labels, outputs, loss
+                            gc.collect()
+                            torch.cuda.empty_cache()
+
+
+                    loss_acc += raw_loss_ / grad_acc
+
+                # update parameters
+                with torch.set_grad_enabled(True):
+                    # Gradient clipping
+                    if clip:
+                        nn.utils.clip_grad_norm_(
+                            _trainable_params(self.model), clip)
+
+                    # weight decay
+                    if wd_type == 0:
+                        # AdamW
+                        for wd, pg in zip(wds0, optimizer.param_groups):
+                            for p in pg['params']:
+                                p.data = p.data.add(-wd * pg['lr'], p.data)
+
+                    # zero the parameter gradients
+                    optimizer.step()
+
+
+            # the last loss (after lr_steps)
+            cur_loss = loss_acc
+            if init_loss is None: init_loss = cur_loss
+
+            # representative lr
+            lr = lr_ratio * lrs0[-1]
+
+            _lrs.append(lr)
+            _losses.append(cur_loss)
+
+            if verbose != 0:
+                print('\rave_count: %d, lr: %e, loss: %f'\
+                    % (average_count, lr, cur_loss), end='')
+
+            if math.isinf(cur_loss) or math.isnan(cur_loss) or\
+               (lr_range is None and cur_loss > 4.0 * init_loss) or\
+               (not lr_range is None and lr_ratio > lr_range):
+
+                self.lrf_ave_samples.append((_lrs, _losses))
+
+                # house keeping
+                self.model.load_state_dict(init_state_dict)
+
+                average_count += 1
+                if average_count >= ave_steps:
+                    # averaging process
+                    self._lrf_finalize()
+                    return
+
+                # for restart
+                _lrs = []
+                _losses = []
+                lr_ratio = 1.0
+                init_loss = None
+
+
+    def fit(
+        self,
+        trn_iter,
+        val_iter=None,
+        epochs=1,
+        lrs=1.0e-3,
+        wds=1e-7,
+        wd_type=0,
+        clip=1,
+        onecycle_lr_fun=OneCycleGenerator(
+            [0., 0.25, 1.],
+            [0.1, 1.0, 0.01],
+            interp_fun=interp_cos,
+        ),
+        onecycle_mom_fun=OneCycleGenerator(
+            [0., 0.25, 1.],
+            [0.95, 0.85, 0.95],
+            interp_fun=interp_cos,
+        ),
+        grad_acc=1,
+        flag_gc=False,
+        verbose=0):
+        """Fit the model.
+
+        Parameters
+        ----------
+        trn_iter : Iterator
+            Data loader for training, providing input data andthe labels.
+        val_iter : Iterator (optional)
+            Data loader for validation, providing input data andthe labels.
+        epoch : Int (optional)
+            Number of epochs for traning.
+            The default value is 1.
+        lrs : Float or list/tuple/np.array of Floats (optional)
+            Learning rate for training. If `use_clr` is `True`,
+            this is the maximum (peak) value for the cycle.
+            If list/tuple/np.array is given, the length must be equal to
+            the number of layer groups of the model and each value
+            corresponds to the layer group.
+            The default value is 1.0e-3.
+        wds : Float or list/tuple/np.array of Floats (optional)
+            Weight decay factor.
+            If list/tuple/np.array is given, the length must be equal to
+            the number of layer groups of the model and each value
+            corresponds to the layer group.
+            The default value is 1e-7.
+        wd_type : Int (optional)
+            If `0` is given, AdamW type weight decay is used.
+            Otherwise, conventional L2 regularization type is used.
+        clip: None or Float (optional)
+            Gradient clipping value.
+            If None is given, gradient clipping is not applied.
+            Default is 1.
+        onecycle_lr_fun : function or None
+            Function for hyper-parameter scheduling for learning rate.
+            This function accepts one argument `pos` in the range `[0, 1]`
+            and returns the value of the reference learning rate
+            (that of the final layer group). The parameter `pos` is
+            the relative position of the entire training steps.
+        onecycle_mom_fun : function or None
+            Function for hyper-parameter scheduling for momentum.
+            This function accepts one argument `pos` in the range `[0, 1]`
+            and returns the value of the momentum of the optimizer.
+            The parameter `pos` is the relative position of
+            the entire training steps.
+        grad_acc : Int
+            Gradient accumulation factor.
+            For example, if `2` is given, updating parameters are applied
+            once in 2 steps, so that effective batch size becomes twice.
+            Default is 1.
+        flag_gc : Bool (optional)
+            Set `True` if you want gabage collecting for every step.
+            Default is `False`.
+        verbose : Int
+            0 prints nothing.
+            1 prints current loss at each epoch.
+            2 also prints progress bars.
+            3 for google colaboratory.
+
+        Returns
+        -------
+        h_metrics : numpy.array
+            Histories of the training process are returned.
+        """
+
+        lrs0, wds0 = self._normalize_hyperparameters(lrs, wds)
+        if wd_type == 0:
+            # AdamW
+            optimizer = self._init_optimizer_(lrs0)
+        else:
+            # L2 regularization
+            optimizer = self._init_optimizer(lrs0, wds0)
+
+
+        b_val = True if not val_iter is None else False
+
+        cur_best_weights = copy.deepcopy(self.model.state_dict())
+        cur_best_loss = None
+
+        h_metrics = {'loss': []}
+        if b_val:
+            for k in self.loss_dict.keys():
+                if k == 'loss': continue
+                h_metrics['val_' + k] = []
+
+        loss_all = []
+
+
+        # One-Cycle LR scheduling
+        if not onecycle_mom_fun is None:
+            onecycle_nb = len(trn_iter) * epochs // grad_acc
+
+            is_betas_in_optim = False
+            onecycle_betas0 = None
+            for pg in optimizer.param_groups:
+                if 'betas' in pg:
+                    is_betas_in_optim = True
+                    onecycle_betas0 = pg['betas']
+                    break
+
+
+        _lrs = []
+        _moms = []
+
+        # initialize lr for the first training
+        # One-Cycle LR scheduling
+        if not onecycle_lr_fun is None:
+            onecycle_lr_ratio = onecycle_lr_fun(0)
+        else:
+            onecycle_lr_ratio = 1
+        if not onecycle_mom_fun is None:
+            # mom is the absolute value of mom
+            # mom0 is the initial value of mom
+            # (mom/mom0) is gonna be the ratio
+            mom = mom0 = onecycle_mom_fun(0)
+
+        for lr0, pg in zip(lrs0, optimizer.param_groups):
+            pg['lr'] = lr0 * onecycle_lr_ratio
+            if not onecycle_mom_fun is None:
+                if is_betas_in_optim:
+                    pg['betas'] = [b0 for b0 in onecycle_betas0]
+                else:
+                    pg['momentum'] = mom
+
+
+        # loop for epochs
+        if verbose == 2:
+            iter_epochs = tqdm_notebook(
+                range(epochs), desc='epoch')
+        else:
+            iter_epochs = range(epochs)
+        for ep in iter_epochs:
+
+            n_trn = 0; n_val = 0
+            trn_metrics = {'loss': []}
+            if b_val: val_metrics = {k: [] for k in self.loss_dict.keys() if k != 'loss'}
+
+            # training loop
+            self.model.train(mode=True)
+
+            if verbose == 3:
+                # colab mode
+                desc = 'epoch %3d train batch' % (ep)
+                iter_train_steps = tqdm(trn_iter, desc=desc)
+            elif verbose == 2:
+                iter_train_steps = tqdm_notebook(
+                    trn_iter, desc='train batch:', leave=False)
+            else:
+                iter_train_steps = trn_iter
+
+
+            # zero the parameter gradients
+            with torch.set_grad_enabled(True):
+                optimizer.zero_grad()
+            loss_acc = 0
+
+            for ga_i, (inputs, labels) in enumerate(iter_train_steps):
+                #inputs = inputs.to(self.device)
+                #labels = labels.to(self.device)
+                inputs = [i.to(self.device) for i in inputs]
+                labels = [{k: v.to(self.device) for k, v in l.items()} for l in labels]
+
+
+                # forward
+                with torch.set_grad_enabled(True):
+                    #outputs = self.model(inputs)
+                    # for RCNN models
+                    outputs = self.model(inputs, labels)
+
+                    loss = self.loss_dict['loss'](outputs, labels)
+                    raw_loss_ = loss.item()
+
+                    loss = loss / grad_acc
+
+                    # backward -- accumulating the gradients
+                    loss.backward()
+
+                    # for OOM by Giang
+                    if flag_gc:
+                        del inputs, labels, outputs, loss
+                        gc.collect()
+                        torch.cuda.empty_cache()
+
+
+                loss_acc += raw_loss_ / grad_acc
+                if (ga_i + 1) % grad_acc == 0:
+                    # finish a batch
+
+                    with torch.set_grad_enabled(True):
+                        # Gradient clipping
+                        if clip:
+                            nn.utils.clip_grad_norm_(
+                                _trainable_params(self.model), clip)
+
+                        # weight decay
+                        if wd_type == 0:
+                            # AdamW
+                            for wd, pg in zip(wds0, optimizer.param_groups):
+                                for p in pg['params']:
+                                    p.data = p.data.add(-wd * pg['lr'], p.data)
+
+                        # update the parameters
+                        optimizer.step()
+
+                        # zero the parameter gradients
+                        optimizer.zero_grad()
+
+                    n_trn += 1
+                    trn_metrics['loss'].append(loss_acc)
+                    # ... skip metrics other than loss in training for now...
+
+                    loss_acc = 0
+
+                    # One-Cycle LR scheduling
+                    # house-keeping and
+                    # seting new lr for the next training
+                    if not onecycle_lr_fun is None:
+                        _lrs.append(lrs0[-1] * onecycle_lr_ratio)
+                        if not onecycle_mom_fun is None:
+                            if is_betas_in_optim:
+                                _moms.append(onecycle_betas0[0] * mom/mom0)
+                            else:
+                                _moms.append(mom)
+
+                        t = (ep * len(trn_iter) + ga_i) / (epochs * len(trn_iter))
+                        onecycle_lr_ratio = onecycle_lr_fun(t)
+                        if not onecycle_mom_fun is None:
+                            mom = onecycle_mom_fun(t)
+
+                        for lr0, pg in zip(lrs0, optimizer.param_groups):
+                            pg['lr'] = lr0 * onecycle_lr_ratio
+                            if not onecycle_mom_fun is None:
+                                if is_betas_in_optim:
+                                    pg['betas'] = [
+                                        b0 * mom/mom0 for b0 in onecycle_betas0
+                                    ]
+                                else:
+                                    pg['momentum'] = mom
+
+                    else:
+                        # no One-Cycle LR scheduling
+                        _lrs.append(lrs0[-1])
+
+
+            # validation loop
+            if b_val:
+                # Set self.model to evaluate mode
+                self.model.train(mode=False)
+                self.model.eval()
+                # to obtain loss
+
+                if verbose == 3:
+                    desc = 'epoch %3d valid batch' % (ep)
+                    iter_val_steps = tqdm(val_iter, desc=desc)
+                elif verbose == 2:
+                    iter_val_steps = tqdm_notebook(
+                        val_iter, desc='val batch:', leave=False)
+                else:
+                    iter_val_steps = val_iter
+    
+                for inputs, labels in iter_val_steps:
+                    #inputs = inputs.to(self.device)
+                    #labels = labels.to(self.device)
+                    inputs = [i.to(self.device) for i in inputs]
+                    labels = [{k: v.to(self.device) for k, v in l.items()} for l in labels]
+
+                    with torch.set_grad_enabled(False):
+                        outputs = self.model(inputs)
+    
+                    n_val += 1
+                    for k, m_fn in self.loss_dict.items():
+                        if k == 'loss': continue
+                        val_metrics[k].append(m_fn(outputs, labels))
+
+                    # for OOM by Giang
+                    if flag_gc:
+                        del inputs, labels, outputs
+                        gc.collect()
+                        torch.cuda.empty_cache()
+
+
+            # end of the epoch
+            h_metrics['loss'].append(np.array(trn_metrics['loss']).sum() / n_trn)
+            if b_val:
+                for l in self.loss_dict.keys():
+                    if l == 'loss': continue
+                    h_metrics['val_' + l].append(np.array(val_metrics[l]).sum() / n_val)
+
+            # acculumate the details for loss and acc
+            loss_all.extend(trn_metrics['loss'])
+
+            # check best_loss
+            # NOTE: use training loss because no val_loss
+            ave_loss = h_metrics['loss'][-1]
+            if cur_best_loss is None:
+                cur_best_loss = ave_loss
+            elif ave_loss < cur_best_loss:
+                cur_best_loss = ave_loss
+                cur_best_weights = copy.deepcopy(self.model.state_dict())
+    
+    
+            if 'acc' in self.loss_dict:
+                if verbose == 3:
+                    if b_val:
+                        tqdm.write('\nepoch %3d : (loss, val_acc)  %10f  %10f' % (
+                            ep,
+                            h_metrics['loss'][-1], h_metrics['val_acc'][-1]))
+                    else:
+                        tqdm.write('\nepoch %3d : (loss)  %10f' % (
+                            ep,
+                            h_metrics['loss'][-1]))
+                elif verbose != 0:
+                    if b_val:
+                        tqdm.write('epoch %3d : (loss, val_acc)  %10f  %10f' % (
+                            ep,
+                            h_metrics['loss'][-1], h_metrics['val_acc'][-1]))
+                    else:
+                        tqdm.write('epoch %3d : (loss)  %10f' % (
+                            ep,
+                            h_metrics['loss'][-1]))
+            else:
+                if verbose == 3:
+                    tqdm.write('\nepoch %3d : (loss)  %10f' % (
+                        ep,
+                        h_metrics['loss'][-1]))
+                elif verbose != 0:
+                    tqdm.write('epoch %3d : (loss)  %10f' % (
+                        ep,
+                        h_metrics['loss'][-1]))
+    
+    
+        self.best_weights = cur_best_weights
+        self.best_loss = cur_best_loss
+    
+        h_metrics['lrs'] = _lrs
+        if not onecycle_mom_fun is None:
+            h_metrics['moms'] = _moms
+        h_metrics['loss_all'] = loss_all
+        return h_metrics
