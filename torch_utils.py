@@ -273,6 +273,7 @@ def plot_history(history):
         n_steps = n_all // len(history['loss'])
         x = (np.array(range(n_epochs)) + 0.5)*n_steps
 
+    # loss graph
     plt.subplot(n_rows, n_cols, 1)
     plt.title('loss')
     plt.ylabel('loss')
@@ -280,28 +281,43 @@ def plot_history(history):
     if 'loss_all' in history:
         plt.xlabel('step')
         plt.plot(history['loss_all'], '.', zorder=1)
-        plt.scatter(x, history['loss'], s=400, c='orange', zorder=2)
-        if len(x) > 1:
+        if len(history['loss']) > 1:
+            plt.scatter(x, history['loss'], s=400, c='orange', zorder=2)
             plt.plot(x, history['loss'], '-',
                      label='training')
+        else:
+            plt.scatter(x, history['loss'], s=400, c='orange', zorder=2,
+                        label='training')
+
         if 'val_loss' in history:
-            plt.scatter(x, history['val_loss'], s=400, c='red', zorder=2)
-            if len(x) > 1:
+            if len(history['loss']) > 1:
+                plt.scatter(x, history['val_loss'], s=400, c='red', zorder=2)
                 plt.plot(x, history['val_loss'], '-', c='red',
                          label='validation')
+            else:
+                plt.scatter(x, history['val_loss'], s=400, c='red', zorder=2,
+                            label='validation')
     else:
         plt.xlabel('epoch')
-        plt.plot(history['loss'], 'o', c='orange')
         if len(history['loss']) > 1:
+            plt.plot(history['loss'], 'o', c='orange')
             plt.plot(history['loss'], '-', c='orange',
                      label='training')
+        else:
+            plt.plot(history['loss'], 'o', c='orange',
+                     label='training')
         if 'val_loss' in history:
-            plt.plot(history['val_loss'], 'o', c='red')
-            if len(history['val_loss']) > 1:
+            if len(history['loss']) > 1:
+                plt.plot(history['val_loss'], 'o', c='red')
                 plt.plot(history['val_loss'], '-', c='red',
+                         label='validation')
+            else:
+                plt.plot(history['val_loss'], 'o', c='red',
                          label='validation')
     plt.legend()
 
+
+    # accuracy graph
     if 'acc' in history:
         plt.subplot(n_rows, n_cols, 2)
         plt.title('acc')
@@ -310,25 +326,39 @@ def plot_history(history):
         if 'acc_all' in history:
             plt.xlabel('step')
             plt.plot(history['acc_all'], '.', zorder=1)
-            plt.scatter(x, history['acc'], s=400, c='orange', zorder=2)
-            if len(x) > 1:
+            if len(history['acc']) > 1:
+                plt.scatter(x, history['acc'], s=400, c='orange', zorder=2)
                 plt.plot(x, history['acc'], '-',
                          label='training')
+            else:
+                plt.scatter(x, history['acc'], s=400, c='orange', zorder=2,
+                            label='training')
+
             if 'val_acc' in history:
-                plt.scatter(x, history['val_acc'], s=400, c='red', zorder=2)
-                if len(x) > 1:
+                if len(history['acc']) > 1:
+                    plt.scatter(x, history['val_acc'], s=400, c='red', zorder=2)
                     plt.plot(x, history['val_acc'], '-', c='red',
                              label='validation')
+                else:
+                    plt.scatter(x, history['val_acc'], s=400, c='red', zorder=2,
+                                label='validation')
         else:
             plt.xlabel('epoch')
-            plt.plot(history['acc'], 'o', c='orange')
             if len(history['acc']) > 1:
+                plt.plot(history['acc'], 'o', c='orange')
                 plt.plot(history['acc'], '-', c='orange',
                          label='training')
+            else:
+                plt.plot(history['acc'], 'o', c='orange',
+                         label='training')
+
             if 'val_acc' in history:
-                plt.plot(history['val_acc'], 'o', c='red')
-                if len(history['val_acc']) > 1:
+                if len(history['acc']) > 1:
+                    plt.plot(history['val_acc'], 'o', c='red')
                     plt.plot(history['val_acc'], '-', c='red',
+                             label='validation')
+                else:
+                    plt.plot(history['val_acc'], 'o', c='red',
                              label='validation')
         plt.legend()
 
@@ -340,15 +370,21 @@ def plot_history(history):
         if 'loss_all' in history:
             # that is, x is defined
             plt.xlabel('step')
-            plt.scatter(x, history['val_acc'], s=400, c='red', zorder=2)
-            if len(x) > 1:
+            if len(history['val_acc']) > 1:
+                plt.scatter(x, history['val_acc'], s=400, c='red', zorder=2)
                 plt.plot(x, history['val_acc'], '-', c='red',
                          label='validation')
+            else:
+                plt.scatter(x, history['val_acc'], s=400, c='red', zorder=2,
+                            label='validation')
         else:
             plt.xlabel('epoch')
-            plt.plot(history['val_acc'], 'o', c='red')
             if len(history['val_acc']) > 1:
+                plt.plot(history['val_acc'], 'o', c='red')
                 plt.plot(history['val_acc'], '-', c='red',
+                         label='validation')
+            else:
+                plt.plot(history['val_acc'], 'o', c='red',
                          label='validation')
         plt.legend()
 
