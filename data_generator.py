@@ -88,6 +88,66 @@ def image_ch_swap(x):
     return y
 
 
+def distort_sine(
+    inp,
+    dist_x_freq_max=3,
+    dist_x_amp_max=0.05,
+    dist_y_freq_max=3,
+    dist_y_amp_max=0.05):
+
+    """ Distort image by shifting horizontally and vertically by sine function.
+
+    Parameters
+    ----------
+    inp : numpy.array
+        Original image.
+    dist_x_freq_max :
+        Maximum frequency scale to PI in the horizontal distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_x_amp_max :
+        Maximum amplitude scale to the image width in the horizontal distortion.
+        Default is 0.05.
+    dist_y_freq_max :
+        Maximum frequency scale to PI in the vertical distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_y_amp_max :
+        Maximum amplitude scale to the image width in the vertical distortion.
+        Default is 0.05.
+    """
+    dst = np.zeros_like(inp)
+    h, w, c = inp.shape
+
+    # the horizontal distortion
+    freq = math.pi / h * random.randrange(1.0, dist_x_freq_max)
+    phase = float(h) * random.randrange(1.0)
+    amp   = random.gauss(0, w * dist_x_amp_max)
+    s0    = math.sin(freq * (0.5*h + phase))
+    for ih in range(h):
+        s = int(amp * (math.sin(freq * (ih + phase)) - s0))
+        s = s % w
+        if s == 0:
+            dst[ih, :] = inp[ih, :]
+        else:
+            dst[ih, :-s] = inp[ih, s:]
+            dst[ih, -s:] = inp[ih, :s]
+
+    # the vertical distortion
+    freq  = math.pi / w * random.randrange(1.0, dist_y_freq_max)
+    phase = float(w) * random.randrange(1.0)
+    amp   = random.gauss(0, h * dist_y_amp_max)
+    s0    = math.sin(freq * (0.5 * w + phase))
+    for iw in range(w):
+        s = int(amp * (math.sin(freq * (iw + phase)) - s0))
+        s = s % h
+        if s == 0:
+            dst[:, iw] = inp[:, iw]
+        else:
+            dst[:-s, iw] = inp[s:, iw]
+            dst[-s:, iw] = inp[:s, iw]
+
+    return dst
+
+
 
 
 def distort_image_with_params(
@@ -102,6 +162,11 @@ def distort_image_with_params(
     dist_rot_n_angle=0,
     dist_shift_x_px=0,
     dist_shift_y_px=0,
+    dist_sine=False,
+    dist_sine_freq_x=3,
+    dist_sine_amp_x=0.05,
+    dist_sine_freq_y=3,
+    dist_sine_amp_y=0.05,
     fill_ave=False):
     """ Distort image.
 
@@ -146,6 +211,20 @@ def distort_image_with_params(
         Default value (0) means no distortion.
         Give positive value `y`, then the actual shift is chosen randomly
         in the range of `[-y, y]`.
+    dist_sine : bool
+        If set `True`, apply `distort_sine()`. Default is `False`.
+    dist_sine_freq_x : float
+        Maximum frequency scale to PI in the horizontal distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_sine_amp_x : float
+        Maximum amplitude scale to the image width in the horizontal distortion.
+        Default is 0.05.
+    dist_sine_freq_y : float
+        Maximum frequency scale to PI in the vertical distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_sine_amp_y : float
+        Maximum amplitude scale to the image width in the vertical distortion.
+        Default is 0.05.
     fill_ave : bool
         If set `True`, the black pixel `(0, 0, 0)` in `uint8` format
         will be replaced by the average color of the original image.
@@ -241,6 +320,16 @@ def distort_image_with_params(
             (np_img[:, :, 2] == 0)
         )] = av_color
 
+    # sine distortion
+    if dist_sine:
+        np_img = distort_sine(
+            np_img,
+            dist_x_freq_max=dist_sine_freq_x,
+            dist_x_amp_max=dist_sine_amp_x,
+            dist_y_freq_max=dist_sine_freq_y,
+            dist_y_amp_max=dist_sine_amp_y,
+        )
+
     # normalize from [0, 255] in uint8 to [0, 1] in float32
     img = (np_img / 255).astype(np.float32)
 
@@ -268,6 +357,11 @@ def distort_image(
     dist_rot=False, dist_rot_max=10,
     dist_rot_n=0,
     dist_shift_x=0, dist_shift_y=0,
+    dist_sine=False,
+    dist_sine_freq_x=3,
+    dist_sine_amp_x=0.05,
+    dist_sine_freq_y=3,
+    dist_sine_amp_y=0.05,
     fill_ave=False):
     """ Distort image.
 
@@ -317,6 +411,20 @@ def distort_image(
         Default value (0) means no distortion.
         Give positive value `y`, then the actual shift is chosen randomly
         in the range of `[-y, y]`.
+    dist_sine : bool
+        If set `True`, apply `distort_sine()`. Default is `False`.
+    dist_sine_freq_x : float
+        Maximum frequency scale to PI in the horizontal distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_sine_amp_x : float
+        Maximum amplitude scale to the image width in the horizontal distortion.
+        Default is 0.05.
+    dist_sine_freq_y : float
+        Maximum frequency scale to PI in the vertical distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_sine_amp_y : float
+        Maximum amplitude scale to the image width in the vertical distortion.
+        Default is 0.05.
     fill_ave : bool
         If set `True`, the black pixel `(0, 0, 0)` in `uint8` format
         will be replaced by the average color of the original image.
@@ -368,6 +476,11 @@ def distort_image(
         dist_rot_n_angle=dist_rot_n_angle,
         dist_shift_x_px=dist_shift_x_px,
         dist_shift_y_px=dist_shift_y_px,
+        dist_sine=dist_sine,
+        dist_sine_freq_x=dist_sine_freq_x,
+        dist_sine_amp_x=dist_sine_amp_x,
+        dist_sine_freq_y=dist_sine_freq_y,
+        dist_sine_amp_y=dist_sine_amp_y,
         fill_ave=fill_ave)
 
 
@@ -467,6 +580,20 @@ def data_generator(
         Give positive value `y`, then the actual shift is chosen randomly
         in the range of `[-y, y]`.
         Blank pixels are filled by zero after normalization applied.
+    dist_sine : bool
+        If set `True`, apply `distort_sine()`. Default is `False`.
+    dist_sine_freq_x : float
+        Maximum frequency scale to PI in the horizontal distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_sine_amp_x : float
+        Maximum amplitude scale to the image width in the horizontal distortion.
+        Default is 0.05.
+    dist_sine_freq_y : float
+        Maximum frequency scale to PI in the vertical distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_sine_amp_y : float
+        Maximum amplitude scale to the image width in the vertical distortion.
+        Default is 0.05.
     fill_ave : bool
         If set `True`, the black pixel `(0, 0, 0)` in `uint8` format
         will be replaced by the average color of the original image.
@@ -658,6 +785,20 @@ def np_data_generator(
         Default value (0) means no distortion.
         Give positive value `y`, then the actual shift is chosen randomly
         in the range of `[-y, y]`.
+    dist_sine : bool
+        If set `True`, apply `distort_sine()`. Default is `False`.
+    dist_sine_freq_x : float
+        Maximum frequency scale to PI in the horizontal distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_sine_amp_x : float
+        Maximum amplitude scale to the image width in the horizontal distortion.
+        Default is 0.05.
+    dist_sine_freq_y : float
+        Maximum frequency scale to PI in the vertical distortion.
+        Default is 3, that is, 1.5 cycles of oscillation.
+    dist_sine_amp_y : float
+        Maximum amplitude scale to the image width in the vertical distortion.
+        Default is 0.05.
     fill_ave : bool
         If set `True`, the black pixel `(0, 0, 0)` in `uint8` format
         will be replaced by the average color of the original image.
