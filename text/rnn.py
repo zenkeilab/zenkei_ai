@@ -7,17 +7,6 @@ from torch import nn
 import torch.nn.functional as F
 
 
-# from the latest fastai/core.py
-def is_listy(x): return isinstance(x, (tuple,list))
-
-
-# from the latest fastai/torch_core.py
-def to_detach(b):
-    "Recursively detach lists of tensors in `b `"
-    if is_listy(b): return [to_detach(o) for o in b]
-    return b.detach() if isinstance(b, torch.Tensor) else b
-
-#def trange_of(x): return torch.arange(len(x))
 def range_of(x): return torch.arange(len(x))
 
 
@@ -49,7 +38,7 @@ class RNNDropout(nn.Module):
         m = dropout_mask(x.data, (1, x.size(1), x.size(2)), self.p)
         return x * m
 
-# salesforce / fastai mixed version
+
 class WeightDropout(nn.Module):
     "A module that warps another layer in which some weights will be replaced by 0 during training."
 
@@ -62,36 +51,17 @@ class WeightDropout(nn.Module):
         self.weight_p = weight_p
         self.layer_names = layer_names
 
-        # Terrible temporary solution to an issue regarding compacting weights re: CUDNN RNN
-        if issubclass(type(self.module), nn.RNNBase):
-            self.module.flatten_parameters = self.widget_demagnetizer_y2k_edition
-
-        #Makes a copy of the weights of the selected layers.
         for layer in self.layer_names:
+            #Makes a copy of the weights of the selected layers.
             w = getattr(self.module, layer)
-            # salesforce
-            del self.module._parameters[layer]
-            self.module.register_parameter(f'{layer}_raw', nn.Parameter(w.data))
-            # fastai
-            #self.register_parameter(f'{layer}_raw', nn.Parameter(w.data))
-
-    def widget_demagnetizer_y2k_edition(*args, **kwargs):
-        # We need to replace flatten_parameters with a nothing function
-        # It must be a function rather than a lambda as otherwise pickling explodes
-        # We can't write boring code though, so ... WIDGET DEMAGNETIZER Y2K EDITION!
-        # (╯°□°）╯︵ ┻━┻
-        return
+            self.register_parameter(f'{layer}_raw', nn.Parameter(w.data))
+            self.module._parameters[layer] = F.dropout(w, p=self.weight_p, training=False)
 
     def _setweights(self):
         "Apply dropout to the raw weights."
         for layer in self.layer_names:
-            # salesforce
-            raw_w = getattr(self.module, f'{layer}_raw')
-            w = F.dropout(raw_w, p=self.weight_p, training=self.training)
-            setattr(self.module, layer, w)
-            # fastai
-            #raw_w = getattr(self, f'{layer}_raw')
-            #self.module._parameters[layer] = F.dropout(raw_w, p=self.weight_p, training=self.training)
+            raw_w = getattr(self, f'{layer}_raw')
+            self.module._parameters[layer] = F.dropout(raw_w, p=self.weight_p, training=self.training)
 
     def forward(self, *args):
         self._setweights()
@@ -102,14 +72,10 @@ class WeightDropout(nn.Module):
 
     def reset(self):
         for layer in self.layer_names:
-            # salesforce
-            raw_w = getattr(self.module, f'{layer}_raw')
-            w = F.dropout(raw_w, p=self.weight_p, training=False)
-            setattr(self.module, layer, w)
-            # fastai
-            #raw_w = getattr(self, f'{layer}_raw')
-            #self.module._parameters[layer] = F.dropout(raw_w, p=self.weight_p, training=False)
+            raw_w = getattr(self, f'{layer}_raw')
+            self.module._parameters[layer] = F.dropout(raw_w, p=self.weight_p, training=False)
         if hasattr(self.module, 'reset'): self.module.reset()
+
 
 class EmbeddingDropout(nn.Module):
     "Apply dropout in the embedding layer by zeroing out some elements of the embedding vector."
