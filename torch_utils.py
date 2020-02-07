@@ -1111,9 +1111,12 @@ class model():
             if not teacher_forcing is None:
                 self.model[1].pr_force = (tf_epochs - ep) * 0.1 if ep < tf_epochs else 0
 
-            n_trn = 0; n_val = 0
+            n_trn = 0
+            n_val = 0
             trn_metrics = {k: [] for k in self.loss_dict.keys()}
             if b_val: val_metrics = {k: [] for k in self.loss_dict.keys()}
+            av_trn_metrics = {k: 0.0 for k in self.loss_dict.keys()}
+            if b_val: av_val_metrics = {k: 0.0 for k in self.loss_dict.keys()}
 
             # training loop
             self.model.train(mode=True)
@@ -1133,6 +1136,9 @@ class model():
             with torch.set_grad_enabled(True):
                 optimizer.zero_grad()
             loss_acc = 0
+            n1_trn = 0
+            av1_trn_metrics = {k: 0.0 for k in self.loss_dict.keys()}
+            if b_val: av1_val_metrics = {k: 0.0 for k in self.loss_dict.keys()}
 
             for ga_i, (inputs, labels) in enumerate(iter_train_steps):
                 #inputs = inputs.to(self.device)
@@ -1178,7 +1184,24 @@ class model():
                     # backward -- accumulating the gradients
                     loss.backward()
 
-                loss_acc += raw_loss_ / grad_acc
+                loss_acc1 = raw_loss_ / grad_acc
+
+                n1_trn += inputs.size()[0]
+                trn_metrics['loss'].append(loss_acc1)
+                av1_trn_metrics['loss'] += loss_acc1
+                for k, m_fn in self.loss_dict.items():
+                    if k != 'loss':
+                        if mixup:
+                            metric = mixup_criterion(
+                                m_fn, outputs,
+                                labels_a, labels_b, lam)
+                        else:
+                            metric = m_fn(outputs, labels)
+
+                        trn_metrics[k].append(metric)
+                        av1_trn_metrics[k] += metric
+
+                loss_acc += loss_acc1
                 if (ga_i + 1) % grad_acc == 0:
                     # finish a batch
 
@@ -1201,19 +1224,16 @@ class model():
                         # zero the parameter gradients
                         optimizer.zero_grad()
 
-                    n_trn += 1
-                    trn_metrics['loss'].append(loss_acc)
+                    n_trn += n1_trn
+                    av_trn_metrics['loss'] += av1_trn_metrics['loss'] * n1_trn
                     for k, m_fn in self.loss_dict.items():
                         if k != 'loss':
-                            if mixup:
-                                metric = mixup_criterion(
-                                    m_fn, outputs,
-                                    labels_a, labels_b, lam)
-                                trn_metrics[k].append(metric)
-                            else:
-                                trn_metrics[k].append(m_fn(outputs, labels))
+                            av_trn_metrics[k] += av1_trn_metrics[k] * n1_trn
 
                     loss_acc = 0
+                    n1_trn = 0
+                    av1_trn_metrics = {k: 0.0 for k in self.loss_dict.keys()}
+                    if b_val: av1_val_metrics = {k: 0.0 for k in self.loss_dict.keys()}
 
                     # One-Cycle LR scheduling
                     # house-keeping and
@@ -1280,20 +1300,25 @@ class model():
     
                         loss = self.loss_dict['loss'](outputs, labels)
 
-                    n_val += 1
-                    val_metrics['loss'].append(loss.item())
+                    n1_val = inputs.size()[0]
+                    n_val += n1_val
+                    _loss = loss.item()
+                    val_metrics['loss'].append(_loss)
+                    av_val_metrics['loss'] += (_loss * n1_val)
                     for k, m_fn in self.loss_dict.items():
                         if k != 'loss':
-                            val_metrics[k].append(m_fn(outputs, labels))
+                            metric = m_fn(outputs, labels)
+                            val_metrics[k].append(metric)
+                            av_val_metrics[k] += (metric * n1_val)
 
 
             # end of the epoch
             for l in self.loss_dict.keys():
-                h_metrics[l].append(np.array(trn_metrics[l]).sum() / n_trn)
+                h_metrics[l].append(av_trn_metrics[l] / n_trn)
     
             if b_val:
                 for l in self.loss_dict.keys():
-                    h_metrics['val_' + l].append(np.array(val_metrics[l]).sum() / n_val)
+                    h_metrics['val_' + l].append(av_val_metrics[l] / n_val)
 
             # acculumate the details for loss and acc
             loss_all.extend(trn_metrics['loss'])

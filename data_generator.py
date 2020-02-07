@@ -8,6 +8,9 @@ from PIL import Image
 import gzip
 import struct
 
+from torch.utils.data import Dataset
+from torchvision import transforms
+
 
 def read_mnist(filename):
     """ Read MNIST dataset such as `idx3-ubyte` and `idx1-ubyte`.
@@ -483,6 +486,12 @@ def distort_image(
         dist_sine_amp_y=dist_sine_amp_y,
         fill_ave=fill_ave)
 
+
+
+
+#---------------------
+# generator interface
+#---------------------
 
 def data_generator(
     batch_size,
@@ -1137,7 +1146,9 @@ def img_to_img_data_generator(
 
 
 
+#-----------------------
 # Data Loader interface
+#-----------------------
 
 class DataLoader_from_generator():
     def __init__(self, *args, **kwargs):
@@ -1185,3 +1196,189 @@ class DataLoader_from_img_to_img_generator():
 
     def __len__(self):
         return self.steps
+
+
+
+
+#---------------------------
+# pytorch dataset interface
+#---------------------------
+
+class ZenkeiDataset(Dataset):
+    def __init__(
+        self,
+        file_list,
+        label_list,
+        is_gray_image=False,
+        fixed_norm=None,
+        no_std_norm=False,
+        min_max_norm=False,
+        **kwargs
+    ):
+        """Zenkei Dataset
+
+        Parameters
+        ----------
+        batch_size : int
+            The size of a batch.
+        file_list :
+            A list of filenames of images.
+        label_list :
+            A list of the label corresponding to file_list.
+            if None is given, return only xs (for prediction).
+        shuffle : bool
+            Set True if you want to shuffle the sequence of data. Default value is True.
+        is_gray_image : bool
+            The image data is formed as 1 channel array.
+            Default is False.
+        bgr : bool
+            Set True if the order of image channel should be BGR.
+            If `is_gray_image == False`, just ignored.
+            Default value is Fasle where the order is RGB.
+        fixed_norm : None or [np.array, nparray]
+            If `None`, normalize the pixel value for each image.
+            Otherwise, use the first element `fixed_norm[0]` for the mean,
+            the second element `fixed_norm[1]` for the standard deviation.
+        no_std_norm : bool
+            If `fixed_norm` is not `None`, this option has no effect. Otherwise,
+            if set True, pixel values are not divided by their standard deviation, so that
+            the range of the value would be like [-128, 128], while if set False, divided by the standard
+            deviation and the range would be like [-1, 1].
+        min_max_norm : bool
+            If set `True` for `min_max_norm`, the options `fixed_norm` and `no_std_norm` are just ignored.
+            The pixel values are normalized to [0, 1] by the minimum and the maximum.
+        output_format : string
+            Either 'numpy' or 'torch'.
+
+        **kwargs :
+            for distort_image()
+        image_size : int or list of ints
+            The size of output image in xs.
+        keep_aspect_ratio : bool
+            If set True, the aspect ratio is kept.
+            Otherwise, the image is just resized to 'image_size x image_size'.
+        flip_horizontal : bool
+            Set True then image is flipped horizontally in 50% probability.
+        flip_vertical : bool
+            Set True then image is flipped vertically in 50% probability.
+        dist_zoom : bool
+            If set `True`, the original image is scaled by a random factor
+            in the range of `(dist_zoom_min, dist_zoom_max)`, where
+            `dist_zoom_min` and `dist_zoom_max` are given by the options
+            'dist_zoom_min' and 'dist_zoom_max'.
+        dist_zoom_min : float
+            The minimum zoom ratio (effective only if dist_zoom is True).
+            The default value is 1.0.
+        dist_zoom_max : float
+            The maximum zoom ratio (effective only if dist_zoom is True).
+            The default value is 1.2.
+        dist_rot : bool
+            If set True, the original image is rotated by random angle in the range of
+            (-dist_rot_max, dist_rot_max), where dist_rot_max is given by the option 'dist_rot_max'.
+        dist_rot_max : float
+            The maximum angle to rotation distortion (effective only if dist_rot is True).
+            The default value is 10. The unit is degree.
+        dist_rot_n : int
+            Discrete rotation distortion. Default value (0) means no distortion.
+            The number `n` represents the division of 360 degree.
+            Therefore `n=1` also means no distortion.
+            For `n=2`, the image is rotated 180 degree in 50% probability.
+            For `n=3`, rotated 0, 120, or 240 degrees in 33% each. And so on.
+        dist_shift_x : int
+            Distortion of horizontal shift by pixel.
+            Default value (0) means no distortion.
+            Give positive value `x`, then the actual shift is chosen randomly
+            in the range of `[-x, x]`.
+            Blank pixels are filled by zero after normalization applied.
+        dist_shift_y : int
+            Distortion of vertical shift by pixel.
+            Default value (0) means no distortion.
+            Give positive value `y`, then the actual shift is chosen randomly
+            in the range of `[-y, y]`.
+            Blank pixels are filled by zero after normalization applied.
+        dist_sine : bool
+            If set `True`, apply `distort_sine()`. Default is `False`.
+        dist_sine_freq_x : float
+            Maximum frequency scale to PI in the horizontal distortion.
+            Default is 3, that is, 1.5 cycles of oscillation.
+        dist_sine_amp_x : float
+            Maximum amplitude scale to the image width in the horizontal distortion.
+            Default is 0.05.
+        dist_sine_freq_y : float
+            Maximum frequency scale to PI in the vertical distortion.
+            Default is 3, that is, 1.5 cycles of oscillation.
+        dist_sine_amp_y : float
+            Maximum amplitude scale to the image width in the vertical distortion.
+            Default is 0.05.
+        fill_ave : bool
+            If set `True`, the black pixel `(0, 0, 0)` in `uint8` format
+            will be replaced by the average color of the original image.
+            Note that the black pixels existing on the original are also
+            replaced as well as those introduced by rotation and shifting.
+
+
+        Returns
+        -------
+            Two numpy arrays (xs, ys) are returned if label_list is given, where xs is the image data in the shape of
+            (batch_size, 224, 224, 3) and ys is the corredponding labels in the shape of (batch_size, ).
+            If label_list is None, only xs is returned.
+        """
+        # check the label is in sparse or in one-hot (or multi-label) format
+        if not label_list is None:
+            label_list_shape = np.array(label_list).shape
+            if len(label_list_shape) < 1 or len(label_list_shape) > 2:
+                raise ValueError('label_list is wrong format')
+
+            if len(file_list) != label_list_shape[0]:
+                raise ValueError('file_list and label_list mismatch')
+            is_sparse_label = True if len(label_list_shape) == 1 else False
+
+        if not fixed_norm is None:
+            if not isinstance(fixed_norm, (list, tuple)):
+                raise ValueError('fixed_norm must be a list')
+            if len(fixed_norm) != 2:
+                raise ValueError('fixed_norm must be a list of two elements')
+            if not (isinstance(fixed_norm[0], np.ndarray) and
+                    isinstance(fixed_norm[1], np.ndarray)):
+                raise ValueError('the elements of fixed_norm must be np.array')
+
+        self.file_list = file_list
+        self.label_list = label_list
+
+        self.is_gray_image = is_gray_image
+        self.fixed_norm = fixed_norm
+        self.no_std_norm = no_std_norm
+        self.min_max_norm = min_max_norm
+        
+        self.kwargs = kwargs
+
+
+        self.size = len(file_list)
+
+
+    def __len__(self):
+        return self.size
+    
+    def __getitem__(self, idx):
+        filename = self.file_list[idx]
+        img_orig = Image.open(filename)
+        # it seems that some image is greyscale
+        if self.is_gray_image:
+            if img_orig.mode != 'L': img_orig = img_orig.convert('L')
+        else:
+            if img_orig.mode != 'RGB': img_orig = img_orig.convert('RGB')
+
+        img = distort_image(
+            np.array(img_orig),
+            **self.kwargs)
+
+        if self.min_max_norm:
+            img = img / (img.max(axis=(0, 1)) + 1.0e-6)
+        elif self.fixed_norm is None:
+            img = (img - np.mean(img, axis=(0,1)))
+            if not self.no_std_norm: img = img / (np.std(img, axis=(0,1)) + 1.0e-6)
+        else:
+            img = (img - self.fixed_norm[0])
+            img = img / (self.fixed_norm[1] + 1.0e-6)
+
+        return transforms.ToTensor()(img.astype(np.float32)), self.label_list[idx]
