@@ -514,7 +514,8 @@ class model():
 
         # for fit
         self.best_weights = None
-        self.best_loss = 0.0
+        self.best_metric_type = ''
+        self.best_metric = 0.0
 
 
     def freeze_to(self, n, wo_bn=True):
@@ -964,6 +965,7 @@ class model():
         mixup=False,
         mixup_alpha=1.0,
         mixup_max_lam=False,
+        best_metric_type='acc',
         verbose=0):
         """Fit the model.
 
@@ -1023,6 +1025,9 @@ class model():
             Mixup parameter `alpha`. Only effective if `mixup=True`.
         mixup_max_lam : bool
             Set `True` to apply `max(lam, 1-lam)` for the parameter `lam`.
+        best_metric_type : str
+            'loss' or 'acc' for searching the best model.
+            If 'acc' is not given, 'loss' is used.
         verbose : Int
             0 prints nothing.
             1 prints current loss at each epoch.
@@ -1046,8 +1051,15 @@ class model():
 
         b_val = True if not val_iter is None else False
 
+        if not best_metric_type in ['loss', 'acc']:
+            raise ValueError('`best_metric_type` must be `loss` or `acc`')
+        if not 'acc' in self.loss_dict and best_metric_type == 'acc':
+            print(f'`best_metric_type` is overwritten as `loss`')
+            best_metric_type = 'loss'
+        self.best_metric_type = best_metric_type
+
         cur_best_weights = copy.deepcopy(self.model.state_dict())
-        cur_best_loss = None
+        cur_best_metric = None
 
         h_metrics = {k: [] for k in self.loss_dict.keys()}
         if b_val:
@@ -1325,23 +1337,22 @@ class model():
             if 'acc' in self.loss_dict:
                 acc_all.extend(trn_metrics['acc'])
 
-            # check best_loss
-            if b_val:
-                ave_val_loss = h_metrics['val_loss'][-1]
-                if cur_best_loss is None:
-                    cur_best_loss = ave_val_loss
-                elif ave_val_loss < cur_best_loss:
-                    cur_best_loss = ave_val_loss
-                    cur_best_weights = copy.deepcopy(self.model.state_dict())
+            # check best_metric
+            if best_metric_type == 'acc':
+                # note: metric is -acc, so searching the minimum
+                if b_val: cur_metric = -h_metrics['val_acc'][-1]
+                else:     cur_metric = -h_metrics['acc'][-1]
             else:
-                ave_loss = h_metrics['loss'][-1]
-                if cur_best_loss is None:
-                    cur_best_loss = ave_loss
-                elif ave_loss < cur_best_loss:
-                    cur_best_loss = ave_loss
-                    cur_best_weights = copy.deepcopy(self.model.state_dict())
-    
-    
+                if b_val: cur_metric = h_metrics['val_loss'][-1]
+                else:     cur_metric = h_metrics['loss'][-1]
+
+            if cur_best_metric is None:
+                cur_best_metric = cur_metric
+            elif cur_metric < cur_best_metric:
+                cur_best_metric = cur_metric
+                cur_best_weights = copy.deepcopy(self.model.state_dict())
+
+
             if 'acc' in self.loss_dict:
                 if verbose == 3:
                     if b_val:
@@ -1387,7 +1398,10 @@ class model():
     
     
         self.best_weights = cur_best_weights
-        self.best_loss = cur_best_loss
+        if best_metric_type == 'acc':
+            self.best_metric = -cur_best_metric
+        else:
+            self.best_metric = cur_best_metric
     
         h_metrics['lrs'] = _lrs
         if not onecycle_mom_fun is None:
@@ -1705,7 +1719,10 @@ class model():
             print('history      : ' + label+'.dump.gz')
             print('weights      : ' + label+'_weights.pth')
             print('best weights : ' + label+'_best_weights.pth')
-            print('best loss    :', self.best_loss)
+            if self.best_metric_type == 'loss':
+                print('best loss     :', self.best_metric)
+            else:
+                print('best accuracy :', self.best_metric)
             plot_history(res)
 
 
@@ -2341,6 +2358,7 @@ class RCNN(model):
         ),
         grad_acc=1,
         flag_gc=False,
+        best_metric_type='acc',
         verbose=0):
         """Fit the model.
 
@@ -2393,6 +2411,9 @@ class RCNN(model):
         flag_gc : Bool (optional)
             Set `True` if you want gabage collecting for every step.
             Default is `False`.
+        best_metric_type : str
+            'loss' or 'acc' for searching the best model.
+            If 'acc' is not given, 'loss' is used.
         verbose : Int
             0 prints nothing.
             1 prints current loss at each epoch.
@@ -2416,8 +2437,15 @@ class RCNN(model):
 
         b_val = True if not val_iter is None else False
 
+        if not best_metric_type in ['loss', 'acc']:
+            raise ValueError('`best_metric_type` must be `loss` or `acc`')
+        if not 'acc' in self.loss_dict and best_metric_type == 'acc':
+            print(f'`best_metric_type` is overwritten as `loss`')
+            best_metric_type = 'loss'
+        self.best_metric_type = best_metric_type
+
         cur_best_weights = copy.deepcopy(self.model.state_dict())
-        cur_best_loss = None
+        cur_best_metric = None
 
         h_metrics = {'loss': []}
         if b_val:
@@ -2426,6 +2454,7 @@ class RCNN(model):
                 h_metrics['val_' + k] = []
 
         loss_all = []
+        acc_all = []
 
 
         # One-Cycle LR scheduling
@@ -2630,17 +2659,25 @@ class RCNN(model):
 
             # acculumate the details for loss and acc
             loss_all.extend(trn_metrics['loss'])
+            if 'acc' in self.loss_dict:
+                acc_all.extend(trn_metrics['acc'])
 
-            # check best_loss
-            # NOTE: use training loss because no val_loss
-            ave_loss = h_metrics['loss'][-1]
-            if cur_best_loss is None:
-                cur_best_loss = ave_loss
-            elif ave_loss < cur_best_loss:
-                cur_best_loss = ave_loss
+            # check best_metric
+            if best_metric_type == 'acc':
+                # note: metric is -acc, so searching the minimum
+                if b_val: cur_metric = -h_metrics['val_acc'][-1]
+                else:     cur_metric = -h_metrics['acc'][-1]
+            else:
+                if b_val: cur_metric = h_metrics['val_loss'][-1]
+                else:     cur_metric = h_metrics['loss'][-1]
+
+            if cur_best_metric is None:
+                cur_best_metric = cur_metric
+            elif cur_metric < cur_best_metric:
+                cur_best_metric = cur_metric
                 cur_best_weights = copy.deepcopy(self.model.state_dict())
-    
-    
+
+
             if 'acc' in self.loss_dict:
                 if verbose == 3:
                     if b_val:
@@ -2672,10 +2709,15 @@ class RCNN(model):
     
     
         self.best_weights = cur_best_weights
-        self.best_loss = cur_best_loss
+        if best_metric_type == 'acc':
+            self.best_metric = -cur_best_metric
+        else:
+            self.best_metric = cur_best_metric
     
         h_metrics['lrs'] = _lrs
         if not onecycle_mom_fun is None:
             h_metrics['moms'] = _moms
         h_metrics['loss_all'] = loss_all
+        if 'acc' in self.loss_dict:
+            h_metrics['acc_all'] = acc_all
         return h_metrics
