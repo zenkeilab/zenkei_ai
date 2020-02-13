@@ -655,6 +655,8 @@ class model():
         mixup=False,
         mixup_alpha=1.0,
         mixup_max_lam=False,
+        manifold_mixup=False,
+        layer_mix=None,
         verbose=0):
         """Find learning rate parameter.
 
@@ -707,6 +709,14 @@ class model():
             Mixup parameter `alpha`. Only effective if `mixup=True`.
         mixup_max_lam : bool
             Set `True` to apply `max(lam, 1-lam)` for the parameter `lam`.
+        manifold_mixup : bool
+            Set `True` for manifold mixup.
+            Default (`False`) is for the normal (initial) mixup.
+            This is just ignored if `mixup == False`.
+        layer_mix : None or Int
+            Set layer index for manifold mixup.
+            If `None` is given, layers are picked randomly during the training.
+            This is just ignored if `manifold_mixup == False`.
         verbose: Int
             Set non zero value for verbose mode.
         """
@@ -785,14 +795,25 @@ class model():
                     else:
                         labels = labels.to(self.device)
 
-                    if mixup:
+                    if mixup and (not manifold_mixup):
                         inputs, labels_a, labels_b, lam = mixup_data(
                             inputs, labels, self.device,
                             mixup_alpha, mixup_max_lam)
 
                     # forward
                     with torch.set_grad_enabled(True):
-                        outputs = self.model(inputs)
+                        if mixup and manifold_mixup:
+                            outputs, labels_a, labels_b, lam = self.model(
+                                inputs,
+                                labels,
+                                mixup,
+                                mixup_alpha,
+                                layer_mix,
+                                mixup_max_lam,
+                            )
+                        else:
+                            outputs = self.model(inputs)
+
                         if self.is_rnn and isinstance(outputs, tuple):
                             outputs, *xtra = outputs
 
@@ -965,6 +986,8 @@ class model():
         mixup=False,
         mixup_alpha=1.0,
         mixup_max_lam=False,
+        manifold_mixup=False,
+        layer_mix=None,
         best_metric_type='acc',
         verbose=0):
         """Fit the model.
@@ -1025,6 +1048,14 @@ class model():
             Mixup parameter `alpha`. Only effective if `mixup=True`.
         mixup_max_lam : bool
             Set `True` to apply `max(lam, 1-lam)` for the parameter `lam`.
+        manifold_mixup : bool
+            Set `True` for manifold mixup.
+            Default (`False`) is for the normal (initial) mixup.
+            This is just ignored if `mixup == False`.
+        layer_mix : None or Int
+            Set layer index for manifold mixup.
+            If `None` is given, layers are picked randomly during the training.
+            This is just ignored if `manifold_mixup == False`.
         best_metric_type : str
             'loss' or 'acc' for searching the best model.
             If 'acc' is not given, 'loss' is used.
@@ -1164,7 +1195,7 @@ class model():
                 else:
                     labels = labels.to(self.device)
 
-                if mixup:
+                if mixup and (not manifold_mixup):
                     inputs, labels_a, labels_b, lam = mixup_data(
                         inputs, labels, self.device,
                         mixup_alpha, mixup_max_lam)
@@ -1174,6 +1205,15 @@ class model():
                     # teacher forcing
                     if not teacher_forcing is None:
                         outputs = self.model((inputs, labels))
+                    elif mixup and manifold_mixup:
+                        outputs, labels_a, labels_b, lam = self.model(
+                            inputs,
+                            labels,
+                            mixup,
+                            mixup_alpha,
+                            layer_mix,
+                            mixup_max_lam,
+                        )
                     else:
                         outputs = self.model(inputs)
 
@@ -1306,7 +1346,15 @@ class model():
                         labels = labels.to(self.device)
     
                     with torch.set_grad_enabled(False):
-                        outputs = self.model(inputs)
+                        if mixup:
+                            outputs, _, _, _ = self.model(
+                                inputs,
+                                target=None,
+                                mixup=False,
+                            )
+                        else:
+                            outputs = self.model(inputs)
+
                         if self.is_rnn and isinstance(outputs, tuple):
                             outputs, *xtra = outputs
     
