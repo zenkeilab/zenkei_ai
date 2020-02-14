@@ -1346,7 +1346,7 @@ class model():
                         labels = labels.to(self.device)
     
                     with torch.set_grad_enabled(False):
-                        if mixup:
+                        if mixup and manifold_mixup:
                             outputs, _, _, _ = self.model(
                                 inputs,
                                 target=None,
