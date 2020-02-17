@@ -1155,11 +1155,12 @@ class model():
                 self.model[1].pr_force = (tf_epochs - ep) * 0.1 if ep < tf_epochs else 0
 
             n_trn = 0
-            n_val = 0
             trn_metrics = {k: [] for k in self.loss_dict.keys()}
-            if b_val: val_metrics = {k: [] for k in self.loss_dict.keys()}
             av_trn_metrics = {k: 0.0 for k in self.loss_dict.keys()}
-            if b_val: av_val_metrics = {k: 0.0 for k in self.loss_dict.keys()}
+            n_val = 0
+            if b_val:
+                val_metrics = {k: [] for k in self.loss_dict.keys()}
+                av_val_metrics = {k: 0.0 for k in self.loss_dict.keys()}
 
             # training loop
             self.model.train(mode=True)
@@ -1360,6 +1361,7 @@ class model():
                         loss = self.loss_dict['loss'](outputs, labels)
 
                     n1_val = inputs.size()[0]
+
                     n_val += n1_val
                     _loss = loss.item()
                     val_metrics['loss'].append(_loss)
@@ -2494,6 +2496,9 @@ class RCNN(model):
         cur_best_weights = copy.deepcopy(self.model.state_dict())
         cur_best_metric = None
 
+        # NOTE: for RCNN models,
+        # outputs in train mode has only loss information and
+        # outputs in eval mode are just preds
         h_metrics = {'loss': []}
         if b_val:
             for k in self.loss_dict.keys():
@@ -2549,9 +2554,16 @@ class RCNN(model):
             iter_epochs = range(epochs)
         for ep in iter_epochs:
 
-            n_trn = 0; n_val = 0
+            # NOTE: for RCNN models,
+            # outputs in train mode has only loss information and
+            # outputs in eval mode are just preds
+            n_trn = 0
             trn_metrics = {'loss': []}
-            if b_val: val_metrics = {k: [] for k in self.loss_dict.keys() if k != 'loss'}
+            av_trn_metrics = {'loss': 0.0}
+            n_val = 0
+            if b_val:
+                val_metrics = {k: [] for k in self.loss_dict.keys() if k != 'loss'}
+                av_val_metrics = {k: 0.0 for k in self.loss_dict.keys() if k != 'loss'}
 
             # training loop
             self.model.train(mode=True)
@@ -2570,7 +2582,9 @@ class RCNN(model):
             # zero the parameter gradients
             with torch.set_grad_enabled(True):
                 optimizer.zero_grad()
-            loss_acc = 0
+            #loss_acc = 0
+            n1_trn = 0
+            av1_trn_metrics = {'loss': 0.0}
 
             for ga_i, (inputs, labels) in enumerate(iter_train_steps):
                 #inputs = inputs.to(self.device)
@@ -2593,14 +2607,27 @@ class RCNN(model):
                     # backward -- accumulating the gradients
                     loss.backward()
 
-                    # for OOM by Giang
-                    if flag_gc:
-                        del inputs, labels, outputs, loss
-                        gc.collect()
-                        torch.cuda.empty_cache()
+                #n1_trn += inputs.size()[0]
+                n1_trn += len(inputs)
+                trn_metrics['loss'].append(raw_loss_)
+                av1_trn_metrics['loss'] += raw_loss_ / grad_acc
+
+                # model's outputs in train mode has only loss information
+                # so that other metrics are not supported for now
+                #for k, m_fn in self.loss_dict.items():
+                #    if k != 'loss':
+                #        metric = m_fn(outputs, labels)
+                #        trn_metrics[k].append(metric)
+                #        av1_trn_metrics[k] += metric / grad_acc
+
+                # for OOM by Giang
+                if flag_gc:
+                    del inputs, labels, outputs, loss
+                    gc.collect()
+                    torch.cuda.empty_cache()
 
 
-                loss_acc += raw_loss_ / grad_acc
+                #loss_acc += raw_loss_ / grad_acc
                 if (ga_i + 1) % grad_acc == 0:
                     # finish a batch
 
@@ -2623,11 +2650,13 @@ class RCNN(model):
                         # zero the parameter gradients
                         optimizer.zero_grad()
 
-                    n_trn += 1
-                    trn_metrics['loss'].append(loss_acc)
-                    # ... skip metrics other than loss in training for now...
+                    n_trn += n1_trn
+                    av_trn_metrics['loss'] += av1_trn_metrics['loss'] * n1_trn
 
-                    loss_acc = 0
+
+                    #loss_acc = 0
+                    n1_trn = 0
+                    av1_trn_metrics = {'loss': 0.0}
 
                     # One-Cycle LR scheduling
                     # house-keeping and
@@ -2684,11 +2713,18 @@ class RCNN(model):
 
                     with torch.set_grad_enabled(False):
                         outputs = self.model(inputs)
-    
-                    n_val += 1
+
+                    # model's outputs in eval mode are just preds
+                    # so that loss cannot be estimated
+                    #n1_val = inputs.size()[0]
+                    n1_val = len(inputs)
+
+                    n_val += n1_val
                     for k, m_fn in self.loss_dict.items():
                         if k == 'loss': continue
-                        val_metrics[k].append(m_fn(outputs, labels))
+                        metric = m_fn(outputs, labels)
+                        val_metrics[k].append(metric)
+                        av_val_metrics[k] += (metric * n1_val)
 
                     # for OOM by Giang
                     if flag_gc:
@@ -2698,16 +2734,14 @@ class RCNN(model):
 
 
             # end of the epoch
-            h_metrics['loss'].append(np.array(trn_metrics['loss']).sum() / n_trn)
+            h_metrics['loss'].append(av_trn_metrics['loss'] / n_trn)
             if b_val:
                 for l in self.loss_dict.keys():
                     if l == 'loss': continue
-                    h_metrics['val_' + l].append(np.array(val_metrics[l]).sum() / n_val)
+                    h_metrics['val_' + l].append(av_val_metrics[l] / n_val)
 
             # acculumate the details for loss and acc
             loss_all.extend(trn_metrics['loss'])
-            if 'acc' in self.loss_dict:
-                acc_all.extend(trn_metrics['acc'])
 
             # check best_metric
             if best_metric_type == 'acc':
