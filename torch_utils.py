@@ -1178,10 +1178,9 @@ class model():
             # zero the parameter gradients
             with torch.set_grad_enabled(True):
                 optimizer.zero_grad()
-            loss_acc = 0
+            #loss_acc = 0
             n1_trn = 0
             av1_trn_metrics = {k: 0.0 for k in self.loss_dict.keys()}
-            if b_val: av1_val_metrics = {k: 0.0 for k in self.loss_dict.keys()}
 
             for ga_i, (inputs, labels) in enumerate(iter_train_steps):
                 #inputs = inputs.to(self.device)
@@ -1236,11 +1235,14 @@ class model():
                     # backward -- accumulating the gradients
                     loss.backward()
 
-                loss_acc1 = raw_loss_ / grad_acc
+                #loss_acc1 = raw_loss_ / grad_acc
 
                 n1_trn += inputs.size()[0]
-                trn_metrics['loss'].append(loss_acc1)
-                av1_trn_metrics['loss'] += loss_acc1
+                #trn_metrics['loss'].append(loss_acc1)
+                #av1_trn_metrics['loss'] += loss_acc1
+                trn_metrics['loss'].append(raw_loss_)
+                av1_trn_metrics['loss'] += raw_loss_ / grad_acc
+
                 for k, m_fn in self.loss_dict.items():
                     if k != 'loss':
                         if mixup:
@@ -1251,9 +1253,9 @@ class model():
                             metric = m_fn(outputs, labels)
 
                         trn_metrics[k].append(metric)
-                        av1_trn_metrics[k] += metric
+                        av1_trn_metrics[k] += metric / grad_acc
 
-                loss_acc += loss_acc1
+                #loss_acc += loss_acc1
                 if (ga_i + 1) % grad_acc == 0:
                     # finish a batch
 
@@ -1277,15 +1279,12 @@ class model():
                         optimizer.zero_grad()
 
                     n_trn += n1_trn
-                    av_trn_metrics['loss'] += av1_trn_metrics['loss'] * n1_trn
-                    for k, m_fn in self.loss_dict.items():
-                        if k != 'loss':
-                            av_trn_metrics[k] += av1_trn_metrics[k] * n1_trn
+                    for k in self.loss_dict.keys():
+                        av_trn_metrics[k] += av1_trn_metrics[k] * n1_trn
 
-                    loss_acc = 0
+                    #loss_acc = 0
                     n1_trn = 0
                     av1_trn_metrics = {k: 0.0 for k in self.loss_dict.keys()}
-                    if b_val: av1_val_metrics = {k: 0.0 for k in self.loss_dict.keys()}
 
                     # One-Cycle LR scheduling
                     # house-keeping and
