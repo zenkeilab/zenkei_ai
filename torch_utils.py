@@ -1405,53 +1405,61 @@ class model():
             if 'acc' in self.loss_dict:
                 if verbose == 3:
                     if b_val:
-                        tqdm.write('\nepoch %3d : (loss, val_loss, acc, val_acc)  %10f  %10f  %10f  %10f' % (
+                        tqdm.write('\nepoch %3d : (loss, val_loss, acc, val_acc) %10f %10f %10f %10f / best : %10f' % (
                             ep,
                             h_metrics['loss'][-1], h_metrics['val_loss'][-1],
-                            h_metrics['acc'][-1], h_metrics['val_acc'][-1]))
+                            h_metrics['acc'][-1], h_metrics['val_acc'][-1],
+                            -cur_best_metric))
                     else:
-                        tqdm.write('\nepoch %3d : (loss, acc)  %10f  %10f' % (
+                        tqdm.write('\nepoch %3d : (loss, acc) %10f %10f / best : %10f' % (
                             ep,
                             h_metrics['loss'][-1],
-                            h_metrics['acc'][-1]))
+                            h_metrics['acc'][-1],
+                            -cur_best_metric))
                 elif verbose != 0:
                     if b_val:
-                        tqdm.write('epoch %3d : (loss, val_loss, acc, val_acc)  %10f  %10f  %10f  %10f' % (
+                        tqdm.write('epoch %3d : (loss, val_loss, acc, val_acc) %10f %10f %10f %10f / best : %10f' % (
                             ep,
                             h_metrics['loss'][-1], h_metrics['val_loss'][-1],
-                            h_metrics['acc'][-1], h_metrics['val_acc'][-1]))
+                            h_metrics['acc'][-1], h_metrics['val_acc'][-1],
+                            -cur_best_metric))
                     else:
-                        tqdm.write('epoch %3d : (loss, acc)  %10f  %10f' % (
+                        tqdm.write('epoch %3d : (loss, acc) %10f %10f / best : %10f' % (
                             ep,
                             h_metrics['loss'][-1],
-                            h_metrics['acc'][-1]))
+                            h_metrics['acc'][-1],
+                            -cur_best_metric))
             else:
                 if verbose == 3:
                     if b_val:
-                        tqdm.write('\nepoch %3d : (loss, val_loss)  %10f  %10f' % (
+                        tqdm.write('\nepoch %3d : (loss, val_loss) %10f %10f / best : %10f' % (
                             ep,
-                            h_metrics['loss'][-1], h_metrics['val_loss'][-1]))
+                            h_metrics['loss'][-1], h_metrics['val_loss'][-1],
+                            cur_best_metric))
                     else:
-                        tqdm.write('\nepoch %3d : (loss)  %10f' % (
+                        tqdm.write('\nepoch %3d : (loss) %10f / best : %10f' % (
                             ep,
-                            h_metrics['loss'][-1]))
+                            h_metrics['loss'][-1],
+                            cur_best_metric))
                 elif verbose != 0:
                     if b_val:
-                        tqdm.write('epoch %3d : (loss, val_loss)  %10f / %10f' % (
+                        tqdm.write('epoch %3d : (loss, val_loss) %10f %10f / best : %10f' % (
                             ep,
-                            h_metrics['loss'][-1], h_metrics['val_loss'][-1]))
+                            h_metrics['loss'][-1], h_metrics['val_loss'][-1],
+                            cur_best_metric))
                     else:
-                        tqdm.write('epoch %3d : (loss)  %10f' % (
+                        tqdm.write('epoch %3d : (loss) %10f / best : %10f' % (
                             ep,
-                            h_metrics['loss'][-1]))
-    
-    
+                            h_metrics['loss'][-1],
+                            cur_best_metric))
+
+
         self.best_weights = cur_best_weights
         if best_metric_type == 'acc':
             self.best_metric = -cur_best_metric
         else:
             self.best_metric = cur_best_metric
-    
+
         h_metrics['lrs'] = _lrs
         if not onecycle_mom_fun is None:
             h_metrics['moms'] = _moms
@@ -2762,39 +2770,45 @@ class RCNN(model):
             if 'acc' in self.loss_dict:
                 if verbose == 3:
                     if b_val:
-                        tqdm.write('\nepoch %3d : (loss, val_acc)  %10f  %10f' % (
+                        tqdm.write('\nepoch %3d : (loss, val_acc) %10f %10f / best : %10f' % (
                             ep,
-                            h_metrics['loss'][-1], h_metrics['val_acc'][-1]))
+                            h_metrics['loss'][-1], h_metrics['val_acc'][-1],
+                            -cur_best_metric))
                     else:
-                        tqdm.write('\nepoch %3d : (loss)  %10f' % (
+                        tqdm.write('\nepoch %3d : (loss) %10f / best : %10f' % (
                             ep,
-                            h_metrics['loss'][-1]))
+                            h_metrics['loss'][-1],
+                            -cur_best_metric))
                 elif verbose != 0:
                     if b_val:
-                        tqdm.write('epoch %3d : (loss, val_acc)  %10f  %10f' % (
+                        tqdm.write('epoch %3d : (loss, val_acc) %10f %10f / best : %10f' % (
                             ep,
-                            h_metrics['loss'][-1], h_metrics['val_acc'][-1]))
+                            h_metrics['loss'][-1], h_metrics['val_acc'][-1],
+                            -cur_best_metric))
                     else:
-                        tqdm.write('epoch %3d : (loss)  %10f' % (
+                        tqdm.write('epoch %3d : (loss) %10f / best : %10f' % (
                             ep,
-                            h_metrics['loss'][-1]))
+                            h_metrics['loss'][-1],
+                            -cur_best_metric))
             else:
                 if verbose == 3:
-                    tqdm.write('\nepoch %3d : (loss)  %10f' % (
+                    tqdm.write('\nepoch %3d : (loss) %10f / best : %10f' % (
                         ep,
-                        h_metrics['loss'][-1]))
+                        h_metrics['loss'][-1],
+                        cur_best_metric))
                 elif verbose != 0:
-                    tqdm.write('epoch %3d : (loss)  %10f' % (
+                    tqdm.write('epoch %3d : (loss) %10f / best : %10f' % (
                         ep,
-                        h_metrics['loss'][-1]))
-    
-    
+                        h_metrics['loss'][-1],
+                        cur_best_metric))
+
+
         self.best_weights = cur_best_weights
         if best_metric_type == 'acc':
             self.best_metric = -cur_best_metric
         else:
             self.best_metric = cur_best_metric
-    
+
         h_metrics['lrs'] = _lrs
         if not onecycle_mom_fun is None:
             h_metrics['moms'] = _moms
